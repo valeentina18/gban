@@ -1,0 +1,19 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno
+.env
+
+# Base de datos
+*.db
+
+# Backups locales
+Backups/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Directorios de sistema
+.DS_Store
