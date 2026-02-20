@@ -38,7 +38,7 @@ cp .env.example .env
 Editar `.env` con tus valores:
 ```
 BOT_TOKEN=tu_token_del_bot
-LOG_CHANNEL_ID=id_del_canal_de_logs
+LOG_CHANNELS=id_canal_1,id_canal_2
 FOUNDERS=id1,id2,id3
 ```
 
