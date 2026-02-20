@@ -15,18 +15,38 @@ const dbModule = require('./database/db');
 
 // Configuración del bot y base de datos usando variables de entorno
 
-const BOT_TOKEN = process.env.BOT_TOKEN;
+function parseCsvEnv(value = '') {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
 
-// Cambiar la configuración para soportar múltiples canales de logs
+function parsePositiveIntEnv(value, fallback) {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
-const LOG_CHANNELS = process.env.LOG_CHANNELS ? process.env.LOG_CHANNELS.split(',') : [];
+const BOT_TOKEN = process.env.BOT_TOKEN ? process.env.BOT_TOKEN.trim() : '';
 
-const FOUNDERS = process.env.FOUNDERS.split(','); // IDs de founders separados por comas
+// Compatibilidad: si no existe LOG_CHANNELS, usar LOG_CHANNEL_ID (formato antiguo).
+const LEGACY_LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID ? process.env.LOG_CHANNEL_ID.trim() : '';
+const LOG_CHANNELS = parseCsvEnv(process.env.LOG_CHANNELS || LEGACY_LOG_CHANNEL_ID);
+const FOUNDERS = parseCsvEnv(process.env.FOUNDERS); // IDs de founders separados por comas
+
+if (!BOT_TOKEN) {
+  console.error('Falta BOT_TOKEN en el entorno. Configúralo en el archivo .env.');
+  process.exit(1);
+}
+
+if (FOUNDERS.length === 0) {
+  console.warn('No hay founders configurados en FOUNDERS. Los comandos administrativos quedarán bloqueados.');
+}
 
 const bot = new Telegraf(BOT_TOKEN);
 
-const INACTIVE_CHAT_DAYS = Math.max(parseInt(process.env.INACTIVE_CHAT_DAYS || '30', 10), 1);
-const INACTIVE_CHAT_CHECK_HOURS = Math.max(parseInt(process.env.INACTIVE_CHAT_CHECK_HOURS || '12', 10), 1);
+const INACTIVE_CHAT_DAYS = parsePositiveIntEnv(process.env.INACTIVE_CHAT_DAYS, 30);
+const INACTIVE_CHAT_CHECK_HOURS = parsePositiveIntEnv(process.env.INACTIVE_CHAT_CHECK_HOURS, 12);
 const INACTIVE_CHAT_CHECK_INTERVAL = INACTIVE_CHAT_CHECK_HOURS * 60 * 60 * 1000;
 const INACTIVITY_WINDOW_MS = INACTIVE_CHAT_DAYS * 24 * 60 * 60 * 1000;
 
@@ -1438,9 +1458,9 @@ bot.command('gban', async (ctx) => {
 
   
 
-    // Verificar si el target es un founder
-
-    if (isUserFounder(identifier.replace('@', ''))) {
+    // Verificar si el target es un founder (cuando se pasa como ID directamente).
+    const normalizedIdentifier = identifier.startsWith('@') ? identifier.slice(1) : identifier;
+    if (isUserFounder(normalizedIdentifier)) {
 
         return ctx.reply('❌ No puedo ejecutar esa acción sobre un founder.\n¡Los founders están protegidos!');
 
@@ -1455,6 +1475,17 @@ bot.command('gban', async (ctx) => {
     
 
     const user = await resolveUser(bot, identifier);
+
+    // Verificar founder por ID real si se pudo resolver por username.
+    if (user && isUserFounder(user.id)) {
+        await ctx.telegram.editMessageText(
+            ctx.chat.id,
+            processingMsg.message_id,
+            null,
+            '❌ No puedo ejecutar esa acción sobre un founder.\n¡Los founders están protegidos!'
+        );
+        return;
+    }
 
     
 
@@ -1538,6 +1569,17 @@ bot.command('gban', async (ctx) => {
 
         return;
 
+    }
+
+    // Username/identificador inválido: evitamos continuar con un user null.
+    if (!user && !identifier.match(/^\d+$/)) {
+        await ctx.telegram.editMessageText(
+            ctx.chat.id,
+            processingMsg.message_id,
+            null,
+            '❌ No se encontró el usuario especificado. Usa un ID numérico o un @username válido.'
+        );
+        return;
     }
 
     
@@ -3351,13 +3393,11 @@ bot.on('message', async (ctx, next) => {
 
   // Ignorar mensajes de bots
 
-  if (ctx.from.is_bot) return next();
+  if (!ctx.from || ctx.from.is_bot) return next();
 
   
 
   // Ignorar mensajes de canales
-
-  if (!ctx.from) return next();
 
   
 
